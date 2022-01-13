@@ -1,0 +1,1326 @@
+<!DOCTYPE html>
+
+<head>
+	<meta charset="utf-8"/>
+	<title>Легото</title>
+
+	<script src="webgl-fmi.txt"></script>
+	<script src="shaders.txt"></script>
+	
+	<style>
+		body{
+			height: 100%;
+			width: 100%;
+		}
+		canvas {
+			display: block;
+			position: fixed;
+			left: 2em;
+			top: 2em;
+			margin: auto;
+			width: calc(100% - 4em);
+			height: calc(100% - 4em);
+		}
+		h2{
+			position: fixed;
+			top: -0.7em;
+			left: 2em;
+		}
+	</style>
+	
+	<script>
+		
+		//------------DIMENTIONS
+		var PLATE_HEIGHT = 0.4;
+		var BRICK_HEIGHT = 3 * PLATE_HEIGHT;
+		var LEGO_WIDTH = 1;
+		var LEGO_CUT = 0.2;
+		
+		//------------COLORS
+		var RED = [0.70, 0, 0.02];
+		var DARK_RED = [0.42, 0.05, 0.08];
+		var DARK_YELLOW = [0.97, 0.73, 0.19];
+		var GRAY = [0.69, 0.71, 0.78];
+		var LIME = [0.65, 0.79, 0.33];
+		var ORANGE = [1, 0.49, 0.08];
+		var BRIGHT_PINK = [1, 0.73, 1];
+		var TRANS_LIGHT_BLUE = [0.41, 0.74, 0.77];
+		var DARK_BLUISH_GRAY = [0.35, 0.36, 0.38];
+		var WHITE = [1, 1, 1];
+		var TEXTURE_PLACEHOLDER = [0, 0, 1];
+		
+		//------------BRICK_TYPES
+		var PLATE = 1;
+		var BRICK = 2;
+		var EXTENDED_BRICK = 3;
+		var EDGE_PLATE = 4;
+		var PLATE_WITH_RAIL = 5;
+		var SLOPE = 6;
+		var PLATE_ARM = 7;
+		var PLATE_SIDE_PINS = 8;
+		var PLATE_MIDDLE_PIN = 9;
+		var CYLINDER_BRICK = 10;
+		var CYLINDER_PLATE = 11;
+		
+		//turns out it is not that basic...
+		var sumA = 0;
+		LegoBasicPart = function(x, y, flat, brick, cut, color)
+		{
+			var data = [];
+			var lineData = [];
+			this.linePoints = 0;
+			this.position = [0, 0, 0];
+			this.color = color;
+			var scaleZ;
+			switch(brick)
+			{
+				case PLATE: scaleZ = 0.4; break;
+				case BRICK: scaleZ = 1.2; break;
+				case EXTENDED_BRICK: scaleZ = 2.0; break;
+				case EDGE_PLATE: scaleZ = 0.4; break;
+				case PLATE_WITH_RAIL: scaleZ = 0.4; break;
+				case SLOPE: scaleZ = 0.8; break;
+				case PLATE_ARM: scaleZ = 0.4; break;
+				case PLATE_SIDE_PINS: scaleZ = 0.4; break;
+				case PLATE_MIDDLE_PIN: scaleZ = 0.4; break;
+				case CYLINDER_PLATE: scaleZ = 0.4; break;
+				case CYLINDER_BRICK: scaleZ = 1.2; break;
+				default: scaleZ = 0.4; break;
+			}
+			this.scale = [1, 1, scaleZ];
+			this.rotation = [0, 0, 0];
+			
+			this.edges = 32;
+			this.trianglePoints = 0;
+			this.pins = 0;
+			
+			var xCoord = x / 2;
+			var yCoord = y / 2;
+			  
+			if(brick <= EXTENDED_BRICK)
+			{
+				data = legoCuboid(lineData, xCoord, yCoord, cut);
+				this.trianglePoints += 36;
+				if(cut) this.trianglePoints += 30;
+				this.linePoints += 24;
+			}
+			else if(brick == EDGE_PLATE)
+			{
+				data = legoEdgePart(lineData, xCoord, yCoord);
+				this.trianglePoints += 60;
+				this.linePoints += 36;
+			}
+			else if(brick == PLATE_WITH_RAIL)
+			{
+				data = legoPlateWithRail(data, xCoord, yCoord);
+				this.trianglePoints += 108;
+			}
+			else if(brick == SLOPE)
+			{
+				data = legoSlope(lineData, xCoord, yCoord);
+				this.trianglePoints += 36;
+				this.linePoints += 24;
+			}
+			else if(brick == PLATE_ARM)
+			{
+				data = legoPlateArm(lineData, xCoord, yCoord, this.edges);
+				//this.tiranglePoints += 36; --> this thing was needed and it took me about 2-3 hours to figure out I misspelled it and 
+				//thats why it didn't draw correctly... JavaScript is fun :)
+				this.trianglePoints += 36;
+				this.trianglePoints += 12*(this.edges-6);
+				this.trianglePoints += 12*(this.edges-6);
+				this.trianglePoints += 12;
+				this.linePoints += 24;
+			}
+			else if(brick == PLATE_SIDE_PINS)
+			{
+				data = legoCuboid(lineData, xCoord, yCoord, cut);
+				this.trianglePoints += 36;
+				this.linePoints += 24;
+			}
+			else if(brick == PLATE_MIDDLE_PIN)
+			{
+				data = legoCuboid(lineData, xCoord, yCoord, cut);
+				this.trianglePoints += 36;
+				this.linePoints += 24;
+			}
+			else
+			{
+				var a = 0;
+				var r = 1;
+				var dA = 2*Math.PI/this.edges;
+				var upperZ = 1.0;
+				var lowerZ = 0.0;
+				for (var i=0; i<this.edges; i++)
+				{ 
+					var N = [r*Math.cos(a),r*Math.sin(a)];
+					var M = [r*Math.cos(a+dA),r*Math.sin(a+dA)];
+					data.push(r*Math.cos(a), r*Math.sin(a), upperZ,N[0],N[1],0);
+					data.push(r*Math.cos(a), r*Math.sin(a), lowerZ,N[0],N[1],0);
+					data.push(r*Math.cos(a+dA), r*Math.sin(a+dA), lowerZ,M[0],M[1],0);
+					data.push(r*Math.cos(a+dA), r*Math.sin(a+dA), upperZ,M[0],M[1],0);
+					data.push(r*Math.cos(a+dA), r*Math.sin(a+dA), lowerZ,M[0],M[1],0);
+					data.push(r*Math.cos(a), r*Math.sin(a), upperZ,N[0],N[1],0);
+					a += dA;
+				}
+				this.trianglePoints += 6*(this.edges);
+			}
+			
+			if(!flat)
+			{	
+				if(brick == PLATE_MIDDLE_PIN)
+				{
+					legoPinSide(data, [0, 0], this.edges, brick, false, false, true);
+					this.trianglePoints += 18*(this.edges);
+				}
+				else
+				{
+					for(var offsetX = -x/2 + 0.5; offsetX <= x/2 - 0.5; ++offsetX)
+					{
+						for(var offsetY = -y/2 + 0.5; offsetY <= y/2 - 0.5; ++offsetY)
+						{
+							if(brick == EDGE_PLATE)
+							{
+								if(!(offsetX == x/2 - 0.5 && offsetY == -y/2 + 0.5))
+								{
+									legoPinSide(data, [offsetX, offsetY], this.edges, brick, false, false, false);
+									this.trianglePoints += 6*(this.edges);
+								}
+							}
+							else if(brick == PLATE_SIDE_PINS)
+							{
+								if((x > 1 && (offsetX == -x/2 + 0.5 || offsetX == x/2 - 0.5)) || ((y > 1 && (offsetY == -y/2 + 0.5 || offsetY == y/2 - 0.5))))
+								{
+									legoPinSide(data, [offsetX, offsetY], this.edges, brick, false, false, false);
+									this.trianglePoints += 6*(this.edges);
+								}
+							}
+							else
+							{
+								legoPinSide(data, [offsetX, offsetY], this.edges, brick, false, false, false);
+								this.trianglePoints += 6*(this.edges);
+							}
+						}
+					}
+				}
+				if(cut || brick == EXTENDED_BRICK)
+				{
+					for(var offsetX = -x/2 + 0.5; offsetX <= x/2 - 0.5; ++offsetX)
+					{
+						if(brick == EXTENDED_BRICK)
+						{
+							legoPinSide(data, [offsetX, 1.5], this.edges, brick, true, cut, true);
+							legoPinSide(data, [offsetX, 0.4], this.edges, brick, true, cut, true);
+							this.trianglePoints += 18*(this.edges);
+							this.trianglePoints += 18*(this.edges);
+						}
+						else
+						{
+							legoPinSide(data, [offsetX, 0.7], this.edges, brick, true, cut, true);
+							this.trianglePoints += 18*(this.edges);
+						}
+					}
+				}
+				if(brick >= CYLINDER_BRICK)
+				{
+					var a = 0;
+					var r = 1.0;
+					var dA = 2*Math.PI/this.edges;
+					var upperZ = 1.0;
+					var lowerZ = 0.0;
+					data.push(0,0,upperZ, 0,0,1);
+					for (var i=0; i<=this.edges; i++)
+					{ 
+						data.push(r*Math.cos(a), r*Math.sin(a),upperZ,0,0,1);
+						lineData.push(r*Math.cos(a), r*Math.sin(a), upperZ);
+						lineData.push(r*Math.cos(a+dA), r*Math.sin(a+dA), upperZ);
+						lineData.push(r*Math.cos(a), r*Math.sin(a), lowerZ);
+						lineData.push(r*Math.cos(a+dA), r*Math.sin(a+dA), lowerZ);
+						a += dA;
+					}
+					this.linePoints += 4*(this.edges+1);
+					++this.pins;
+				}
+				for(var offsetX = -x/2 + 0.5; offsetX <= x/2 - 0.5; ++offsetX)
+				{
+					for(var offsetY = -y/2 + 0.5; offsetY <= y/2 - 0.5; ++offsetY)
+					{
+						if(brick == EDGE_PLATE)
+						{
+							if(!(offsetX == x/2 - 0.5 && offsetY == -y/2 + 0.5))
+							{
+								legoPinTop(data, [offsetX, offsetY], this.edges, brick);
+							}
+							else
+							{
+								--this.pins;
+							}
+						}
+						else if(brick == PLATE_SIDE_PINS)
+						{
+							if((x > 1 && (offsetX == -x/2 + 0.5 || offsetX == x/2 - 0.5)) || ((y > 1 && (offsetY == -y/2 + 0.5 || offsetY == y/2 - 0.5))))
+							{
+								legoPinTop(data, [offsetX, offsetY], this.edges, brick);
+							}
+							else
+							{
+								--this.pins;
+							}
+						}
+						else if(brick == PLATE_MIDDLE_PIN)
+						{
+							--this.pins;
+						}
+						else
+						{
+							legoPinTop(data, [offsetX, offsetY], this.edges, brick);
+						}
+					}
+				}
+				this.pins += x * y;
+			}
+			var buf = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+			this.buf = buf;
+			var lineBuf = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lineData), gl.STATIC_DRAW);
+			this.lineBuf = lineBuf;
+			sumA += this.trianglePoints;
+		}
+		
+		legoCuboid = function(lineData, xCoord, yCoord, cut)
+		{
+			var divider = cut ? 1.2 : 1.0;
+			var cutOffset = cut ? 0.2 : 0;
+			var v = [ [+xCoord,-yCoord+cutOffset,-0], [+xCoord,+yCoord,-0],
+				  [-xCoord,+yCoord,-0], [-xCoord,-yCoord+cutOffset,-0],
+				  [+xCoord,-yCoord+cutOffset,+1], [+xCoord,+yCoord,+1],
+				  [-xCoord,+yCoord,+1], [-xCoord,-yCoord+cutOffset,+1],
+				  [+xCoord,-yCoord,-0], [-xCoord,-yCoord,-0],
+				  [+xCoord,-yCoord,+cutOffset/divider], [+xCoord,-yCoord+cutOffset,+cutOffset/divider],
+				  [-xCoord,-yCoord+cutOffset,+cutOffset/divider], [-xCoord,-yCoord,+cutOffset/divider] ];
+			
+			var n = [ [1,0,0], [-1,0,0],
+				  [0,1,0], [0,-1,0],
+				  [0,0,1], [0,0,-1] ];
+				  
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+				  
+			data1 = [].concat(
+					  v[0],n[0],v[1],n[0],v[4],n[0],   //right
+					  v[4],n[0],v[1],n[0],v[5],n[0],
+					  v[6],n[1],v[2],n[1],v[7],n[1],   //left
+					  v[7],n[1],v[2],n[1],v[3],n[1],
+					  v[5],n[2],v[1],n[2],v[6],n[2],   //back
+					  v[6],n[2],v[1],n[2],v[2],n[2],
+					  v[4],n[3],v[7],n[3],v[0],n[3],   //front
+					  v[0],n[3],v[7],n[3],v[3],n[3],
+					  v[4],n[4],v[5],n[4],v[7],n[4],   //top
+					  v[7],n[4],v[5],n[4],v[6],n[4],
+					  v[0],n[5],v[3],n[5],v[1],n[5],   //bottom
+					  v[1],n[5],v[3],n[5],v[2],n[5] );
+			
+			if(cut)
+			{
+				data1 = data1.concat(
+					v[10],n[3],v[13],n[3],v[8],n[3],  //front
+					v[8],n[3],v[13],n[3],v[9],n[3],
+					v[8],n[0],v[0],n[0],v[10],n[0],   //right
+					v[10],n[0],v[0],n[0],v[11],n[0],
+					v[12],n[1],v[3],n[1],v[13],n[1],  //left
+					v[13],n[1],v[3],n[1],v[9],n[1],
+					v[10],n[4],v[11],n[4],v[13],n[4], //top
+					v[13],n[4],v[11],n[4],v[12],n[4],
+					v[8],n[5],v[9],n[5],v[0],n[5],    //bottom
+					v[0],n[5],v[9],n[5],v[3],n[5], );
+			}
+			return data1;
+		}
+		
+		legoEdgePart = function(lineData, xCoord, yCoord)
+		{
+			var v = [ [-0,-yCoord,-0], [-0,-0,-0],
+				  [+xCoord,-0,-0], [+xCoord,+yCoord,-0],
+				  [-xCoord,+yCoord,-0], [-xCoord,-yCoord,-0],
+				  [+0,-yCoord,+1], [+0,+0,+1],
+				  [+xCoord,+0,+1], [+xCoord,+yCoord,+1],
+				  [-xCoord,+yCoord,+1], [-xCoord,-yCoord,+1] ];
+			
+			var n = [ [1,0,0], [-1,0,0],
+				  [0,1,0], [0,-1,0],
+				  [0,0,1], [0,0,-1] ];
+				  
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[8][0], v[8][1], v[8][2]);
+			lineData.push(v[8][0], v[8][1], v[8][2]);
+			lineData.push(v[9][0], v[9][1], v[9][2]);
+			lineData.push(v[9][0], v[9][1], v[9][2]);
+			lineData.push(v[10][0], v[10][1], v[10][2]);
+			lineData.push(v[10][0], v[10][1], v[10][2]);
+			lineData.push(v[11][0], v[11][1], v[11][2]);
+			lineData.push(v[11][0], v[11][1], v[11][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[8][0], v[8][1], v[8][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[9][0], v[9][1], v[9][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[10][0], v[10][1], v[10][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[11][0], v[11][1], v[11][2]);
+				  
+			var data1 = [].concat(
+					  v[0],n[0],v[1],n[0],v[6],n[0],   //right1
+					  v[6],n[0],v[1],n[0],v[7],n[0],
+					  v[2],n[0],v[3],n[0],v[8],n[0],   //right2
+					  v[8],n[0],v[3],n[0],v[9],n[0],
+					  v[10],n[1],v[4],n[1],v[11],n[1],   //left
+					  v[11],n[1],v[4],n[1],v[5],n[1],
+					  v[9],n[2],v[3],n[2],v[10],n[2],   //back
+					  v[10],n[2],v[3],n[2],v[4],n[2],
+					  v[6],n[3],v[11],n[3],v[0],n[3],   //front1
+					  v[0],n[3],v[11],n[3],v[5],n[3],
+					  v[8],n[3],v[7],n[3],v[2],n[3],   //front2
+					  v[2],n[3],v[7],n[3],v[1],n[3],
+					  v[11],n[4],v[6],n[4],v[10],n[4],   //top1
+					  v[10],n[4],v[6],n[4],v[7],n[4],
+					  v[7],n[4],v[8],n[4],v[10],n[4],   //top2
+					  v[10],n[4],v[8],n[4],v[9],n[4],
+					  v[5],n[5],v[0],n[5],v[4],n[5],   //bottom1
+					  v[4],n[5],v[0],n[5],v[1],n[5],
+					  v[1],n[5],v[2],n[5],v[4],n[5],   //bottom2
+					  v[4],n[5],v[2],n[5],v[3],n[5] );
+		
+			return data1;
+		}
+		
+		legoPlateWithRail = function(data, xCoord, yCoord)
+		{
+			var yOffset = 0.3;
+			var lowerMid = 0.4;
+			var upperMid = 0.6;
+			var width = (upperMid - lowerMid) * 0.4; // 0.08
+			var v = [ [+xCoord,-yCoord,-0], [+xCoord,+yCoord,-0],
+				  [-xCoord,+yCoord,-0], [-xCoord,-yCoord,-0],
+				  [+xCoord,-yCoord,+1], [+xCoord,+yCoord,+1],
+				  [-xCoord,+yCoord,+1], [-xCoord,-yCoord,+1],
+				  [+xCoord,-yCoord-yOffset,lowerMid], [+xCoord,-yCoord,lowerMid],
+				  [-xCoord,-yCoord,lowerMid], [-xCoord,-yCoord-yOffset,lowerMid],
+				  [+xCoord,-yCoord-yOffset,upperMid], [+xCoord,-yCoord,upperMid],
+				  [-xCoord,-yCoord,upperMid], [-xCoord,-yCoord-yOffset,upperMid],
+				  [+xCoord,-yCoord-yOffset-width,-0], [+xCoord,-yCoord-yOffset,-0],
+				  [-xCoord,-yCoord-yOffset,-0], [-xCoord,-yCoord-yOffset-width,-0],
+				  [+xCoord,-yCoord-yOffset-width,+1], [+xCoord,-yCoord-yOffset,+1],
+				  [-xCoord,-yCoord-yOffset,+1], [-xCoord,-yCoord-yOffset-width,+1] ];
+			
+			var n = [ [1,0,0], [-1,0,0],
+				  [0,1,0], [0,-1,0],
+				  [0,0,1], [0,0,-1] ];
+				  
+			data1 = [].concat(
+					  v[0],n[0],v[1],n[0],v[4],n[0],   //right
+					  v[4],n[0],v[1],n[0],v[5],n[0],
+					  v[6],n[1],v[2],n[1],v[7],n[1],   //left
+					  v[7],n[1],v[2],n[1],v[3],n[1],
+					  v[5],n[2],v[1],n[2],v[6],n[2],   //back
+					  v[6],n[2],v[1],n[2],v[2],n[2],
+					  v[4],n[3],v[7],n[3],v[0],n[3],   //front
+					  v[0],n[3],v[7],n[3],v[3],n[3],
+					  v[4],n[4],v[5],n[4],v[7],n[4],   //top
+					  v[7],n[4],v[5],n[4],v[6],n[4],
+					  v[0],n[5],v[3],n[5],v[1],n[5],   //bottom
+					  v[1],n[5],v[3],n[5],v[2],n[5],
+					  v[8],n[0],v[9],n[0],v[12],n[0],   //mid right
+					  v[12],n[0],v[9],n[0],v[13],n[0],
+					  v[14],n[1],v[10],n[1],v[15],n[1],   //mid left
+					  v[15],n[1],v[10],n[1],v[11],n[1],
+					  v[13],n[2],v[9],n[2],v[14],n[2],   //mid back
+					  v[14],n[2],v[9],n[2],v[10],n[2],
+					  v[12],n[3],v[15],n[3],v[8],n[3],   //mid front
+					  v[8],n[3],v[15],n[3],v[11],n[3],
+					  v[12],n[4],v[13],n[4],v[15],n[4],   //mid top
+					  v[15],n[4],v[13],n[4],v[14],n[4],
+					  v[8],n[5],v[11],n[5],v[9],n[5],   //mid bottom
+					  v[9],n[5],v[11],n[5],v[10],n[5],
+					  v[16],n[0],v[17],n[0],v[20],n[0],   //extended right
+					  v[20],n[0],v[17],n[0],v[21],n[0],
+					  v[22],n[1],v[18],n[1],v[23],n[1],   //extended left
+					  v[23],n[1],v[18],n[1],v[19],n[1],
+					  v[21],n[2],v[17],n[2],v[22],n[2],   //extended back
+					  v[22],n[2],v[17],n[2],v[18],n[2],
+					  v[20],n[3],v[23],n[3],v[16],n[3],   //extended front
+					  v[16],n[3],v[23],n[3],v[19],n[3],
+					  v[20],n[4],v[21],n[4],v[23],n[4],   //extended top
+					  v[23],n[4],v[21],n[4],v[22],n[4],
+					  v[16],n[5],v[19],n[5],v[17],n[5],   //extended bottom
+					  v[17],n[5],v[19],n[5],v[18],n[5] );
+			return data1;
+		}
+		
+		legoSlope = function(lineData, xCoord, yCoord)
+		{
+			var xOffsetSmall = 0.15;
+			var smallOffset = 0.2;
+			var xOffsetBig = 0.4;
+				  
+			var v = [ [+xCoord,-yCoord,-0], [+xCoord,+yCoord,-0],
+				  [-xCoord,+yCoord,-0], [-xCoord,-yCoord,-0],
+				  [+xCoord,-yCoord,+1], [+xCoord,+yCoord,+1],
+				  [-xCoord,+yCoord,smallOffset], [-xCoord,-yCoord,smallOffset] ];
+				  
+			var n = [ [1,0,1], [-1,0,0],
+				  [0,1,0], [0,-1,0],
+				  [0,0,1], [0,0,-1] ];
+				  
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+				  
+			var data1 = [].concat(
+					  v[0],n[0],v[1],n[0],v[4],n[0],   //right
+					  v[4],n[0],v[1],n[0],v[5],n[0],
+					  v[6],n[1],v[2],n[1],v[7],n[1],   //left
+					  v[7],n[1],v[2],n[1],v[3],n[1],
+					  v[5],n[2],v[1],n[2],v[6],n[2],   //back
+					  v[6],n[2],v[1],n[2],v[2],n[2],
+					  v[4],n[3],v[7],n[3],v[0],n[3],   //front
+					  v[0],n[3],v[7],n[3],v[3],n[3],
+					  v[4],n[4],v[5],n[4],v[7],n[4],   //top
+					  v[7],n[4],v[5],n[4],v[6],n[4],
+					  v[0],n[5],v[3],n[5],v[1],n[5],   //bottom
+					  v[1],n[5],v[3],n[5],v[2],n[5] );
+					  
+			return data1;
+		}
+		
+		legoPlateArm = function(lineData, xCoord, yCoord, edges)
+		{
+			var v = [ [+xCoord,-yCoord,-0], [+xCoord,+yCoord,-0],
+				  [-xCoord,+yCoord,-0], [-xCoord,-yCoord,-0],
+				  [+xCoord,-yCoord,+1], [+xCoord,+yCoord,+1],
+				  [-xCoord,+yCoord,+1], [-xCoord,-yCoord,+1] ];
+				  
+			var n = [ [1,0,0], [-1,0,0],
+				  [0,1,0], [0,-1,0],
+				  [0,0,1], [0,0,-1] ];
+				  
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			
+			lineData.push(v[0][0], v[0][1], v[0][2]);
+			lineData.push(v[4][0], v[4][1], v[4][2]);
+			lineData.push(v[1][0], v[1][1], v[1][2]);
+			lineData.push(v[5][0], v[5][1], v[5][2]);
+			lineData.push(v[2][0], v[2][1], v[2][2]);
+			lineData.push(v[6][0], v[6][1], v[6][2]);
+			lineData.push(v[3][0], v[3][1], v[3][2]);
+			lineData.push(v[7][0], v[7][1], v[7][2]);
+				  
+			var data1 = [].concat(
+					  v[0],n[0],v[1],n[0],v[4],n[0],   //right
+					  v[4],n[0],v[1],n[0],v[5],n[0],
+					  v[6],n[1],v[2],n[1],v[7],n[1],   //left
+					  v[7],n[1],v[2],n[1],v[3],n[1],
+					  v[5],n[2],v[1],n[2],v[6],n[2],   //back
+					  v[6],n[2],v[1],n[2],v[2],n[2],
+					  v[4],n[3],v[7],n[3],v[0],n[3],   //front
+					  v[0],n[3],v[7],n[3],v[3],n[3],
+					  v[4],n[4],v[5],n[4],v[7],n[4],   //top
+					  v[7],n[4],v[5],n[4],v[6],n[4],
+					  v[0],n[5],v[3],n[5],v[1],n[5],   //bottom
+					  v[1],n[5],v[3],n[5],v[2],n[5] );
+				
+			var r = 0.29; //easier to not stick out when shape is CYLINDER_BRICK or CYLINDER_PLATE
+			var dA = 2*Math.PI/edges;
+			var upperZ = 0.25;
+			var lowerZ = -0.25;
+			var divider = 0.4;
+			var multiplier = 1.3;
+			var yOffset = 0.13;
+			var iters = 2;
+			var gap = 3;
+			for(var k = 0; k < iters; ++k)
+			{
+				r -= k * 0.08;
+				var a = 0;
+				for (var i=0; i<edges; i++)
+				{ 
+					if(!(i >= edges/2 - gap && i < edges/2 + gap))
+					{
+						var N = [r*Math.cos(a),r*Math.sin(a)];
+						var M = [r*Math.cos(a+dA),r*Math.sin(a+dA)];
+						if(k > 0)
+						{
+							N = [-r*Math.cos(a), -r*Math.sin(a)];
+							M = [-r*Math.cos(a+dA),-r*Math.sin(a+dA)];
+						}
+						data1.push(upperZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider,0,N[0],N[1]);
+						data1.push(lowerZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider,0,N[0],N[1]);
+						data1.push(lowerZ, (r*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r*Math.sin(a+dA)+0.2)/divider,0,M[0],M[1]);
+						data1.push(upperZ, (r*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r*Math.sin(a+dA)+0.2)/divider,0,M[0],M[1]);
+						data1.push(lowerZ, (r*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r*Math.sin(a+dA)+0.2)/divider,0,M[0],M[1]);
+						data1.push(upperZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider,0,N[0],N[1]);
+					}
+					a += dA;
+				}
+			}
+			var r2 = 0.29;
+			a = (edges/2 + gap)*dA;
+			var normal = vectorProduct(vectorPoints([lowerZ, r*Math.cos(a)-yCoord-yOffset, (r*Math.sin(a)+0.2)/divider],[0, -yCoord-yOffset, 0.2]),
+									   vectorPoints([upperZ, r*Math.cos(a)-yCoord-yOffset, (r*Math.sin(a)+0.2)/divider],[0, -yCoord-yOffset, 0.2]));
+			//sides on the "lower fingers" of the arm
+			data1.push(lowerZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(upperZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(lowerZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(lowerZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(upperZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(upperZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			//sides on the "upper fingers" of the arm
+			a = (edges/2 - gap)*dA;
+			normal[0] = -normal[0];
+			normal[1] = -normal[1];
+			normal[2] = -normal[2];
+			data1.push(lowerZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(upperZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(lowerZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(lowerZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(upperZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			data1.push(upperZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider, normal[0], normal[1], normal[2]);
+			
+			var a = 0;
+			for (var i=0; i<edges; i++)
+			{ 
+				if(!(i >= edges/2 - gap && i < edges/2 + gap))
+				{
+					var N = [r*Math.cos(a),r*Math.sin(a)];
+					var M = [r*Math.cos(a+dA),r*Math.sin(a+dA)];
+					data1.push(upperZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider,1,0,0);
+					data1.push(upperZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider,1,0,0);
+					data1.push(upperZ, (r2*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r2*Math.sin(a+dA)+0.2)/divider,1,0,0);
+					data1.push(upperZ, (r*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r*Math.sin(a+dA)+0.2)/divider,1,0,0);
+					data1.push(upperZ, (r2*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r2*Math.sin(a+dA)+0.2)/divider,1,0,0);
+					data1.push(upperZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider,1,0,0);
+				}
+				a += dA;
+			}
+			а = 0;
+			for (var i=0; i<edges; i++)
+			{ 
+				if(!(i >= edges/2 - gap && i < edges/2 + gap))
+				{
+					var N = [r*Math.cos(a),r*Math.sin(a)];
+					var M = [r*Math.cos(a+dA),r*Math.sin(a+dA)];
+					data1.push(lowerZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider,-1,0,0);
+					data1.push(lowerZ, (r2*Math.cos(a)-yCoord-yOffset)*multiplier, (r2*Math.sin(a)+0.2)/divider,-1,0,0);
+					data1.push(lowerZ, (r2*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r2*Math.sin(a+dA)+0.2)/divider,-1,0,0);
+					data1.push(lowerZ, (r*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r*Math.sin(a+dA)+0.2)/divider,-1,0,0);
+					data1.push(lowerZ, (r2*Math.cos(a+dA)-yCoord-yOffset)*multiplier, (r2*Math.sin(a+dA)+0.2)/divider,-1,0,0);
+					data1.push(lowerZ, (r*Math.cos(a)-yCoord-yOffset)*multiplier, (r*Math.sin(a)+0.2)/divider,-1,0,0);
+				}
+				a += dA;
+			}
+			
+			
+					  
+			return data1;
+		}
+		
+		legoPinSide = function(data, center, edges, brick, front, cut, hollow)
+		{
+			var r = 0.29; //easier to not stick out when shape is CYLINDER_BRICK or CYLINDER_PLATE
+			var dA = 2*Math.PI/edges;
+			var upperZ;
+			var divider;
+			switch(brick)
+			{
+				case PLATE: upperZ = 1.5; divider = 0.4; break;
+				case BRICK: upperZ = 2/3 + 0.5; divider = 1.2; break;
+				case EXTENDED_BRICK: upperZ = front ? 2/3 + 0.5 : 1.1; divider = 2.0; break;
+				case EDGE_PLATE: upperZ = 1.5; divider = 0.4; break;
+				case PLATE_WITH_RAIL: upperZ = 1.5; divider = 0.4; break;
+				case PLATE_ARM: upperZ = 1.5; divider = 0.4; break;
+				case PLATE_SIDE_PINS: upperZ = 1.5; divider = 0.4; break;
+				case PLATE_MIDDLE_PIN: upperZ = 1.5; divider = 0.4; break;
+				case CYLINDER_PLATE: upperZ = 1.5; divider = 0.4; break;
+				case CYLINDER_BRICK: upperZ = 2/3 + 0.5; divider = 1.2; break;
+				default: upperZ = 1.5; divider = 0.4; break;
+			}
+			var lowerZ = 1.0;
+			if(front)
+			{
+				lowerZ -= 0.5;
+				lowerZ = -lowerZ;
+				upperZ -= 0.5;
+				upperZ = -upperZ;
+				if(cut)
+				{
+					lowerZ += 0.2;
+					upperZ += 0.2;
+				}
+			}
+			var iters = hollow ? 2 : 1;
+			for(var k = 0; k < iters; ++k)
+			{
+				r -= k * 0.04;
+				var a = 0;
+				for (var i=0; i<edges; i++)
+				{ 
+					if(front)
+					{
+						var N = [r*Math.cos(a),r*Math.sin(a)];
+						var M = [r*Math.cos(a+dA),r*Math.sin(a+dA)];
+						if(k > 0)
+						{
+							N = [-r*Math.cos(a), -r*Math.sin(a)];
+							M = [-r*Math.cos(a+dA),-r*Math.sin(a+dA)];
+						}
+						data.push(r*Math.cos(a)+center[0], upperZ, (r*Math.sin(a)+center[1])/divider,N[0],0,N[1]);
+						data.push(r*Math.cos(a)+center[0], lowerZ, (r*Math.sin(a)+center[1])/divider,N[0],0,N[1]);
+						data.push(r*Math.cos(a+dA)+center[0], lowerZ, (r*Math.sin(a+dA)+center[1])/divider,M[0],0,M[1]);
+						data.push(r*Math.cos(a+dA)+center[0], upperZ, (r*Math.sin(a+dA)+center[1])/divider,M[0],0,M[1]);
+						data.push(r*Math.cos(a+dA)+center[0], lowerZ, (r*Math.sin(a+dA)+center[1])/divider,M[0],0,M[1]);
+						data.push(r*Math.cos(a)+center[0], upperZ, (r*Math.sin(a)+center[1])/divider,N[0],0,N[1]);
+						a += dA;
+					}
+					else
+					{
+						var N = [r*Math.cos(a),r*Math.sin(a)];
+						var M = [r*Math.cos(a+dA),r*Math.sin(a+dA)];
+						if(k > 0)
+						{
+							N = [-r*Math.cos(a), -r*Math.sin(a)];
+							M = [-r*Math.cos(a+dA),-r*Math.sin(a+dA)];
+						}
+						data.push(r*Math.cos(a)+center[0], r*Math.sin(a)+center[1], upperZ,N[0],N[1],0);
+						data.push(r*Math.cos(a)+center[0], r*Math.sin(a)+center[1], lowerZ,N[0],N[1],0);
+						data.push(r*Math.cos(a+dA)+center[0], r*Math.sin(a+dA)+center[1], lowerZ,M[0],M[1],0);
+						data.push(r*Math.cos(a+dA)+center[0], r*Math.sin(a+dA)+center[1], upperZ,M[0],M[1],0);
+						data.push(r*Math.cos(a+dA)+center[0], r*Math.sin(a+dA)+center[1], lowerZ,M[0],M[1],0);
+						data.push(r*Math.cos(a)+center[0], r*Math.sin(a)+center[1], upperZ,N[0],N[1],0);
+						a += dA;
+					}
+				}
+			}
+			if(hollow)
+			{
+				var a = 0;
+				var r2 = 0.29;
+				if(front)
+				{
+					for (var i=0; i<edges; i++)
+					{
+						data.push(r*Math.cos(a)+center[0], upperZ, (r*Math.sin(a)+center[1])/divider,0,-1,0);
+						data.push(r2*Math.cos(a)+center[0], upperZ, (r2*Math.sin(a)+center[1])/divider,0,-1,0);
+						data.push(r2*Math.cos(a+dA)+center[0], upperZ, (r2*Math.sin(a+dA)+center[1])/divider,0,-1,0);
+						data.push(r*Math.cos(a+dA)+center[0], upperZ, (r*Math.sin(a+dA)+center[1])/divider,0,-1,0);
+						data.push(r2*Math.cos(a+dA)+center[0], upperZ, (r2*Math.sin(a+dA)+center[1])/divider,0,-1,0);
+						data.push(r*Math.cos(a)+center[0], upperZ, (r*Math.sin(a)+center[1])/divider,0,-1,0);
+						a += dA;
+					}
+				}
+				else
+				{
+					for (var i=0; i<edges; i++)
+					{
+						data.push(r*Math.cos(a)+center[0], r*Math.sin(a)+center[1], upperZ,0,0,1);
+						data.push(r2*Math.cos(a)+center[0], r2*Math.sin(a)+center[1], upperZ,0,0,1);
+						data.push(r2*Math.cos(a+dA)+center[0], r2*Math.sin(a+dA)+center[1], upperZ,0,0,1);
+						data.push(r*Math.cos(a+dA)+center[0], r*Math.sin(a+dA)+center[1], upperZ,0,0,1);
+						data.push(r2*Math.cos(a+dA)+center[0], r2*Math.sin(a+dA)+center[1], upperZ,0,0,1);
+						data.push(r*Math.cos(a)+center[0], r*Math.sin(a)+center[1], upperZ,0,0,1);
+						a += dA;
+					}
+				}
+			}
+		}
+		
+		legoPinTop = function(data, center, edges, brick)
+		{
+			var a = 0;
+			var r = 0.29; //easier to not stick out when shape is CYLINDER_BRICK or CYLINDER_PLATE
+			var dA = 2*Math.PI/edges;
+			var upperZ;
+			switch(brick)
+			{
+				case PLATE: upperZ = 1.5; break;
+				case BRICK: upperZ = 2/3 + 0.5; break;
+				case EXTENDED_BRICK: upperZ = 1.1; break;
+				case EDGE_PLATE: upperZ = 1.5; break;
+				case PLATE_WITH_RAIL: upperZ = 1.5; break;
+				case PLATE_ARM: upperZ = 1.5; break;
+				case PLATE_SIDE_PINS: upperZ = 1.5; break;
+				case PLATE_MIDDLE_PIN: upperZ = 1.5; break;
+				case CYLINDER_PLATE: upperZ = 1.5; break;
+				case CYLINDER_BRICK: upperZ = 2/3 + 0.5; break;
+				default: upperZ = 1.5; break;
+			}
+			data.push(center[0],center[1],upperZ, 0,0,1);
+			for (var i=0; i<=edges; i++)
+			{ 
+				data.push(r*Math.cos(a)+center[0], r*Math.sin(a)+center[1],upperZ,0,0,1);
+				a += dA;
+			}
+		}
+		LegoBasicPart.prototype.draw = function()
+		{
+			pushMatrix();
+			gl.vertexAttrib3fv(aColor,this.color);
+			translate(this.position);
+			zRotate(this.rotation[2]);
+			yRotate(this.rotation[1]);
+			xRotate(this.rotation[0]);
+			scale(this.scale);
+			useMatrix();
+			gl.bindBuffer(gl.ARRAY_BUFFER,this.buf);
+			gl.enableVertexAttribArray(aXYZ);
+			gl.vertexAttribPointer(aXYZ,3,gl.FLOAT,false,6*FLOATS,0*FLOATS);
+			gl.enableVertexAttribArray(aNormal);
+			gl.vertexAttribPointer(aNormal,3,gl.FLOAT,false,6*FLOATS,3*FLOATS);
+			
+			gl.drawArrays(gl.TRIANGLES,0,this.trianglePoints);
+			
+			if(!this.flat)
+			{
+				for(var i = 0; i < this.pins; ++i)
+				{
+					gl.drawArrays(gl.TRIANGLE_FAN,this.trianglePoints + i*(this.edges+2),this.edges+2);
+				}
+			}
+			gl.disableVertexAttribArray(aNormal);
+			
+			gl.vertexAttrib3fv(aColor,[0, 0, 0]);
+			gl.bindBuffer(gl.ARRAY_BUFFER,this.lineBuf);
+			gl.vertexAttribPointer(aXYZ,3,gl.FLOAT,false,3*FLOATS,0*FLOATS);
+			gl.drawArrays(gl.LINES, 0, this.linePoints);
+			
+			popMatrix();
+		}
+		
+	
+		function start( )
+		{
+			var	canvas = document.getElementById("picasso");
+			canvas.addEventListener('webglcontextlost',function(event){event.preventDefault();},false);
+			canvas.addEventListener('webglcontextrestored',function(){init();},false);
+			
+			// прехващане на мишката само над графичното поле
+			canvas.addEventListener('mousemove',mouseMove,false);
+			canvas.addEventListener('mousedown',mouseDown,false);
+			canvas.addEventListener('mouseup',mouseUp,false);
+			canvas.addEventListener('mouseout',mouseUp,false);
+			
+			// изключване на контекстното меню
+			canvas.addEventListener('contextmenu',function(e){e.preventDefault();},false);
+
+
+			init();
+			drawFrame();
+		}
+		
+		function init()
+		{
+			gl = getContext("picasso");
+			glprog = getProgram(vShader,fShader);
+			getVariables();
+
+			gl.enable(gl.DEPTH_TEST);
+			gl.clearColor(0.8,0.9,1,1);
+			
+			identity();
+			gl.canvas.width = gl.canvas.offsetWidth;
+			gl.canvas.height = gl.canvas.offsetHeight;
+			gl.viewport(0,0,gl.canvas.width,gl.canvas.height);
+			perspective(30,gl.canvas.width/gl.canvas.height,1,40000);
+			gl.uniform1i(uUseNormalMatrix,false);
+
+			gl.uniform3f(uAmbientColor,0.3,0.3,0.3);
+			gl.uniform3f(uDiffuseColor,1,1,1);
+			gl.uniform3f(uLightDir,0,0,-1);
+			
+			legoParts = [];
+			legoParts[0] = new LegoBasicPart(4, 4, false, PLATE, false, DARK_RED);
+			legoParts[1] = new LegoBasicPart(1, 2, false, PLATE, false, DARK_YELLOW);
+			legoParts[1].position = [-1.5*LEGO_WIDTH, 0, PLATE_HEIGHT];
+			legoParts[2] = new LegoBasicPart(1, 2, false, PLATE, false, DARK_YELLOW);
+			legoParts[2].position = [1.5*LEGO_WIDTH, 0, PLATE_HEIGHT];
+			legoParts[3] = new LegoBasicPart(1, 1, false, BRICK, false, DARK_RED);
+			legoParts[3].position = [1.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			legoParts[4] = new LegoBasicPart(1, 1, false, BRICK, false, DARK_RED);
+			legoParts[4].position = [1.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			
+			legoParts[5] = new LegoBasicPart(1, 1, false, BRICK, false, DARK_RED);
+			legoParts[5].position = [-1.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			legoParts[6] = new LegoBasicPart(1, 1, false, BRICK, false, DARK_RED);
+			legoParts[6].position = [-1.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			legoParts[7] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[7].position = [0.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			legoParts[8] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[8].position = [-0.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			legoParts[9] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[9].position = [0.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			legoParts[9].rotation = [0, 0, 180];
+			legoParts[10] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[10].position = [-0.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT];
+			legoParts[10].rotation = [0, 0, 180];
+			
+			legoParts[11] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[11].position = [1.5*LEGO_WIDTH, 0, 2*PLATE_HEIGHT];
+			legoParts[11].rotation = [0, 0, -90];
+			
+			legoParts[12] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[12].position = [-1.5*LEGO_WIDTH, 0, 2*PLATE_HEIGHT];
+			legoParts[12].rotation = [0, 0, 90];
+			
+			legoParts[13] = new LegoBasicPart(2, 2, false, CYLINDER_BRICK, false, LIME);
+			legoParts[13].position = [0, 0, PLATE_HEIGHT];
+			legoParts[14] = new LegoBasicPart(2, 2, false, CYLINDER_BRICK, false, LIME);
+			legoParts[14].position = [0, 0, PLATE_HEIGHT + BRICK_HEIGHT];
+			
+			//STEP 4
+			legoParts[15] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_YELLOW);
+			legoParts[15].position = [1.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[16] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_YELLOW);
+			legoParts[16].position = [-1.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[17] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_YELLOW);
+			legoParts[17].position = [1.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[17].rotation = [0, 0, 180];
+			legoParts[18] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_YELLOW);
+			legoParts[18].position = [-1.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[18].rotation = [0, 0, 180];
+			
+			//STEP 5
+			legoParts[19] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[19].position = [0.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[20] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[20].position = [-0.5*LEGO_WIDTH, -1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[21] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[21].position = [0.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[21].rotation = [0, 0, 180];
+			legoParts[22] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_RED);
+			legoParts[22].position = [-0.5*LEGO_WIDTH, 1.5*LEGO_WIDTH, PLATE_HEIGHT + BRICK_HEIGHT];
+			legoParts[22].rotation = [0, 0, 180];
+			
+			//STEP 6
+			legoParts[23] = new LegoBasicPart(4, 2, false, PLATE, false, DARK_RED);
+			legoParts[23].position = [0, LEGO_WIDTH, PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[24] = new LegoBasicPart(2, 2, false, EDGE_PLATE, false, DARK_RED);
+			legoParts[24].position = [-LEGO_WIDTH, -LEGO_WIDTH, PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[25] = new LegoBasicPart(2, 2, false, EDGE_PLATE, false, DARK_RED);
+			legoParts[25].position = [LEGO_WIDTH, -LEGO_WIDTH, PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[25].rotation = [0, 0, 90];
+			legoParts[26] = new LegoBasicPart(2, 1, false, PLATE_WITH_RAIL, false, DARK_RED);
+			legoParts[26].position = [0, -1.5*LEGO_WIDTH, PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			
+			//STEP 7
+			legoParts[27] = new LegoBasicPart(2, 1, true, PLATE, false, DARK_RED); //TEXTURE
+			legoParts[27].position = [0, -2*LEGO_WIDTH + LEGO_CUT, 2*PLATE_HEIGHT + 0*BRICK_HEIGHT + 1.5*LEGO_CUT];
+			legoParts[27].rotation = [-90, 0, 0];
+			legoParts[28] = new LegoBasicPart(4, 1, true, PLATE, false, DARK_RED); //TEXTURE
+			legoParts[28].position = [0, -2*LEGO_WIDTH + LEGO_CUT, 2*PLATE_HEIGHT + 1*BRICK_HEIGHT + 1.5*LEGO_CUT];
+			legoParts[28].rotation = [-90, 0, 0];
+			
+			//STEP 8
+			legoParts[29] = new LegoBasicPart(2, 2, false, PLATE, false, DARK_RED);
+			legoParts[29].position = [2*LEGO_WIDTH, 0, 1.5*PLATE_HEIGHT + 1*BRICK_HEIGHT];
+			legoParts[29].rotation = [0, 90, 0];
+			legoParts[30] = new LegoBasicPart(2, 2, false, PLATE, false, DARK_RED);
+			legoParts[30].position = [-2*LEGO_WIDTH, 0, 1.5*PLATE_HEIGHT + 1*BRICK_HEIGHT];
+			legoParts[30].rotation = [0, -90, 0];
+			legoParts[31] = new LegoBasicPart(1, 2, true, SLOPE, false, DARK_RED);
+			legoParts[31].position = [2*LEGO_WIDTH + 1*PLATE_HEIGHT, 0, 2.75*PLATE_HEIGHT + 1*BRICK_HEIGHT];
+			legoParts[31].rotation = [0, 90, 0];
+			legoParts[32] = new LegoBasicPart(1, 2, true, SLOPE, false, DARK_RED);
+			legoParts[32].position = [-2*LEGO_WIDTH - 1*PLATE_HEIGHT, 0, 2.75*PLATE_HEIGHT + 1*BRICK_HEIGHT];
+			legoParts[32].rotation = [0, 90, 180];
+			
+			//ARMS
+			legoParts[33] = new LegoBasicPart(2, 1, false, PLATE_ARM, false, DARK_RED);
+			legoParts[33].position = [2.4*LEGO_WIDTH, 0, 3.25*PLATE_HEIGHT + 0*BRICK_HEIGHT];
+			legoParts[33].rotation = [-90, 0, -90];
+			legoParts[34] = new LegoBasicPart(2, 1, false, PLATE_ARM, false, DARK_RED);
+			legoParts[34].position = [-2.4*LEGO_WIDTH , 0, 3.25*PLATE_HEIGHT + 0*BRICK_HEIGHT];
+			legoParts[34].rotation = [-90, 0, 90];
+			
+			//STEP 9
+			legoParts[35] = new LegoBasicPart(2, 2, false, BRICK, false, ORANGE);
+			legoParts[35].position = [0, 0, 2*PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[36] = new LegoBasicPart(2, 2, false, BRICK, false, ORANGE);
+			legoParts[36].position = [0, 0, 2*PLATE_HEIGHT + 3*BRICK_HEIGHT];
+			
+			//STEP 10
+			legoParts[37] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[37].position = [1.5*LEGO_WIDTH, -1*LEGO_WIDTH, 2*PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[37].rotation = [0, 0, -90];
+			legoParts[38] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[38].position = [1.5*LEGO_WIDTH, 1*LEGO_WIDTH, 2*PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[38].rotation = [0, 0, -90];
+			legoParts[39] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[39].position = [0, 1.5*LEGO_WIDTH, 2*PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[39].rotation = [0, 0, 180];
+			legoParts[40] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[40].position = [-1.5*LEGO_WIDTH, 1*LEGO_WIDTH, 2*PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[40].rotation = [0, 0, 90];
+			legoParts[41] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[41].position = [-1.5*LEGO_WIDTH, -1*LEGO_WIDTH, 2*PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			legoParts[41].rotation = [0, 0, 90];
+			legoParts[42] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[42].position = [0, -1.5*LEGO_WIDTH, 2*PLATE_HEIGHT + 2*BRICK_HEIGHT];
+			
+			//STEP 11
+			legoParts[43] = new LegoBasicPart(2, 2, false, CYLINDER_PLATE, false, RED);
+			legoParts[43].position = [0, 0, 2*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[44] = new LegoBasicPart(2, 2, false, BRICK, false, BRIGHT_PINK);
+			legoParts[44].position = [0, 0, 3*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			
+			//STEP 12
+			legoParts[45] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[45].position = [1.5*LEGO_WIDTH, 0, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[45].rotation = [0, 0, -90];
+			legoParts[46] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[46].position = [1*LEGO_WIDTH, 1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[46].rotation = [0, 0, 180];
+			legoParts[47] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[47].position = [-1*LEGO_WIDTH, 1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[47].rotation = [0, 0, 180];
+			legoParts[48] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[48].position = [-1.5*LEGO_WIDTH, 0, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[48].rotation = [0, 0, 90];
+			legoParts[49] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[49].position = [-1*LEGO_WIDTH, -1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[50] = new LegoBasicPart(2, 1, false, EXTENDED_BRICK, false, GRAY);
+			legoParts[50].position = [1*LEGO_WIDTH, -1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			
+			//STEP 13
+			legoParts[51] = new LegoBasicPart(4, 4, false, PLATE, false, DARK_RED);
+			legoParts[51].position = [0, 0, 3*PLATE_HEIGHT + 5*BRICK_HEIGHT];
+			
+			//STEP 14
+			legoParts[52] = new LegoBasicPart(2, 4, false, PLATE, false, DARK_RED);
+			legoParts[52].position = [0, -2*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[52].rotation = [-90, 0, 0];
+			legoParts[53] = new LegoBasicPart(1, 4, false, PLATE, false, DARK_YELLOW);
+			legoParts[53].position = [-1.5*LEGO_WIDTH, -2*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[53].rotation = [-90, 0, 0];
+			legoParts[54] = new LegoBasicPart(1, 4, false, PLATE, false, DARK_YELLOW);
+			legoParts[54].position = [1.5*LEGO_WIDTH, -2*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[54].rotation = [-90, 0, 0];
+			
+			//STEP 15
+			legoParts[55] = new LegoBasicPart(4, 1, true, PLATE, false, DARK_YELLOW);
+			legoParts[55].position = [0, -2*LEGO_WIDTH - 1*PLATE_HEIGHT, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 1.5*LEGO_WIDTH];
+			legoParts[55].rotation = [-90, 0, 0];
+			legoParts[56] = new LegoBasicPart(4, 1, false, PLATE_SIDE_PINS, false, DARK_YELLOW);
+			legoParts[56].position = [0, -2*LEGO_WIDTH - 1*PLATE_HEIGHT, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 0.5*LEGO_WIDTH];
+			legoParts[56].rotation = [-90, 0, 0];
+			legoParts[57] = new LegoBasicPart(2, 4, true, SLOPE, false, DARK_YELLOW); //TEXTURE
+			legoParts[57].position = [0, -2*LEGO_WIDTH - 1*PLATE_HEIGHT, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT + 1*LEGO_WIDTH];
+			legoParts[57].rotation = [0, 90, 90];
+			
+			//STEP 16  possibly transparent!
+			legoParts[58] = new LegoBasicPart(1, 1, true, PLATE, false, WHITE);
+			legoParts[58].position = [1.5*LEGO_WIDTH, -2*LEGO_WIDTH - 2*PLATE_HEIGHT, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 0.5*LEGO_WIDTH];
+			legoParts[58].rotation = [-90, 0, 0];
+			legoParts[59] = new LegoBasicPart(1, 1, true, PLATE, false, WHITE);
+			legoParts[59].position = [-1.5*LEGO_WIDTH, -2*LEGO_WIDTH - 2*PLATE_HEIGHT, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 0.5*LEGO_WIDTH];
+			legoParts[59].rotation = [-90, 0, 0];
+			
+			//STEP 17
+			legoParts[60] = new LegoBasicPart(2, 2, true, PLATE, false, DARK_RED);
+			legoParts[60].position = [2*LEGO_WIDTH, -1*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT + 1*LEGO_WIDTH];
+			legoParts[60].rotation = [0, 90, 0];
+			legoParts[61] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_YELLOW);
+			legoParts[61].position = [2*LEGO_WIDTH, -1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 0.5*LEGO_WIDTH];
+			legoParts[61].rotation = [0, 90, 0];
+			legoParts[62] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_BLUISH_GRAY);
+			legoParts[62].position = [2*LEGO_WIDTH, -1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 1.5*LEGO_WIDTH];
+			legoParts[62].rotation = [0, 90, 0];
+			legoParts[63] = new LegoBasicPart(2, 1, true, PLATE, false, DARK_RED);
+			legoParts[63].position = [2*LEGO_WIDTH, -0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 1*LEGO_WIDTH];
+			legoParts[63].rotation = [0, 90, 0];
+			
+			//STEP 18
+			legoParts[64] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_RED);
+			legoParts[64].position = [2*LEGO_WIDTH, +0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT + 1.5*LEGO_WIDTH];
+			legoParts[64].rotation = [0, 90, 0];
+			legoParts[65] = new LegoBasicPart(2, 1, false, PLATE_MIDDLE_PIN, false, DARK_RED);
+			legoParts[65].position = [2*LEGO_WIDTH, +0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[65].rotation = [0, 90, 0];
+			legoParts[66] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_RED);
+			legoParts[66].position = [2*LEGO_WIDTH, +0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 1.5*LEGO_WIDTH];
+			legoParts[66].rotation = [0, 90, 0];
+			legoParts[67] = new LegoBasicPart(4, 1, true, PLATE, false, DARK_RED);
+			legoParts[67].position = [2*LEGO_WIDTH, +1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[67].rotation = [0, 90, 0];
+			legoParts[68] = new LegoBasicPart(2, 2, true, PLATE, false, DARK_RED);
+			legoParts[68].position = [2*LEGO_WIDTH + PLATE_HEIGHT, + 0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[68].rotation = [0, 90, 0];
+			
+			//STEP 19
+			legoParts[69] = new LegoBasicPart(2, 2, true, PLATE, false, DARK_RED);
+			legoParts[69].position = [-2*LEGO_WIDTH, -1*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT + 1*LEGO_WIDTH];
+			legoParts[69].rotation = [0, -90, 0];
+			legoParts[70] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_YELLOW);
+			legoParts[70].position = [-2*LEGO_WIDTH, -1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 0.5*LEGO_WIDTH];
+			legoParts[70].rotation = [0, -90, 0];
+			legoParts[71] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_BLUISH_GRAY);
+			legoParts[71].position = [-2*LEGO_WIDTH, -1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 1.5*LEGO_WIDTH];
+			legoParts[71].rotation = [0, -90, 0];
+			legoParts[72] = new LegoBasicPart(2, 1, true, PLATE, false, DARK_RED);
+			legoParts[72].position = [-2*LEGO_WIDTH, -0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 1*LEGO_WIDTH];
+			legoParts[72].rotation = [0, -90, 0];
+			
+			//STEP 20
+			legoParts[73] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_RED);
+			legoParts[73].position = [-2*LEGO_WIDTH, +0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT + 1.5*LEGO_WIDTH];
+			legoParts[73].rotation = [0, -90, 0];
+			legoParts[74] = new LegoBasicPart(2, 1, false, PLATE_MIDDLE_PIN, false, DARK_RED);
+			legoParts[74].position = [-2*LEGO_WIDTH, +0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[74].rotation = [0, -90, 0];
+			legoParts[75] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_RED);
+			legoParts[75].position = [-2*LEGO_WIDTH, +0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT - 1.5*LEGO_WIDTH];
+			legoParts[75].rotation = [0, -90, 0];
+			legoParts[76] = new LegoBasicPart(4, 1, true, PLATE, false, DARK_RED);
+			legoParts[76].position = [-2*LEGO_WIDTH, +1.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[76].rotation = [0, -90, 0];
+			legoParts[77] = new LegoBasicPart(2, 2, true, PLATE, false, DARK_RED);
+			legoParts[77].position = [-2*LEGO_WIDTH - PLATE_HEIGHT, + 0.5*LEGO_WIDTH, 1*PLATE_HEIGHT + 4*BRICK_HEIGHT];
+			legoParts[77].rotation = [0, -90, 0];
+			
+			//STEP 21
+			legoParts[78] = new LegoBasicPart(4, 4, false, PLATE, false, DARK_RED);
+			legoParts[78].position = [0, 2*LEGO_WIDTH, 6*BRICK_HEIGHT - 2*LEGO_WIDTH];
+			legoParts[78].rotation = [90, 0, 0];
+			legoParts[79] = new LegoBasicPart(2, 1, true, PLATE, false, DARK_RED);
+			legoParts[79].position = [0, 2*LEGO_WIDTH - LEGO_CUT, 3*BRICK_HEIGHT - 2.5*LEGO_WIDTH];
+			legoParts[79].rotation = [90, 0, 0];
+			legoParts[80] = new LegoBasicPart(4, 1, true, PLATE, false, DARK_RED);
+			legoParts[80].position = [0, 2*LEGO_WIDTH - LEGO_CUT, 4*BRICK_HEIGHT - 2.5*LEGO_WIDTH];
+			legoParts[80].rotation = [90, 0, 0];
+			
+			//STEP 22
+			legoParts[81] = new LegoBasicPart(4, 2, true, PLATE, false, DARK_RED);
+			legoParts[81].position = [0, 2*LEGO_WIDTH + PLATE_HEIGHT, 6*BRICK_HEIGHT - 1*LEGO_WIDTH];
+			legoParts[81].rotation = [90, 0, 0];
+			legoParts[82] = new LegoBasicPart(4, 2, true, PLATE, false, DARK_RED);
+			legoParts[82].position = [0, 2*LEGO_WIDTH + PLATE_HEIGHT, 6*BRICK_HEIGHT - 3*LEGO_WIDTH];
+			legoParts[82].rotation = [90, 0, 0];
+			
+			//PART 23
+			legoParts[83] = new LegoBasicPart(2, 2, false, PLATE, false, DARK_RED);
+			legoParts[83].position = [0, 0, -1*PLATE_HEIGHT];
+			legoParts[84] = new LegoBasicPart(1, 1, false, BRICK, false, DARK_RED);
+			legoParts[84].position = [1.5*LEGO_WIDTH, 0.5*LEGO_WIDTH, -1*BRICK_HEIGHT];
+			legoParts[85] = new LegoBasicPart(1, 1, false, BRICK, false, DARK_RED);
+			legoParts[85].position = [-1.5*LEGO_WIDTH, 0.5*LEGO_WIDTH, -1*BRICK_HEIGHT];
+			legoParts[86] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_YELLOW);
+			legoParts[86].position = [1.5*LEGO_WIDTH, -0.5*LEGO_WIDTH, -1*BRICK_HEIGHT];
+			legoParts[87] = new LegoBasicPart(1, 1, false, BRICK, true, DARK_YELLOW);
+			legoParts[87].position = [-1.5*LEGO_WIDTH, -0.5*LEGO_WIDTH, -1*BRICK_HEIGHT];
+			legoParts[88] = new LegoBasicPart(1, 2, false, PLATE, false, DARK_RED);
+			legoParts[88].position = [1.5*LEGO_WIDTH, 0, -1*BRICK_HEIGHT - 1*PLATE_HEIGHT];
+			legoParts[89] = new LegoBasicPart(1, 2, false, PLATE, false, DARK_RED);
+			legoParts[89].position = [-1.5*LEGO_WIDTH, 0, -1*BRICK_HEIGHT - 1*PLATE_HEIGHT];
+			legoParts[90] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_RED);
+			legoParts[90].position = [1.5*LEGO_WIDTH, -1*LEGO_WIDTH + LEGO_CUT, -0.5*LEGO_WIDTH];
+			legoParts[90].rotation = [-90, 0, 0];
+			legoParts[91] = new LegoBasicPart(1, 1, true, PLATE, false, DARK_RED);
+			legoParts[91].position = [-1.5*LEGO_WIDTH, -1*LEGO_WIDTH + LEGO_CUT, -0.5*LEGO_WIDTH];
+			legoParts[91].rotation = [-90, 0, 0];
+			
+			frame = 0;
+			max = 0;
+			viewA = 0, realA = 0;
+			viewB = 0, realB = 0;
+			viewD = 30, realD = 10;
+			
+			console.log(sumA);
+			
+		}
+
+		var time = now();
+		function now() { return (new Date()).getTime()/1000; }
+		
+		function drawFrame()
+		{
+			var oldTime = time;
+			time = now();
+			var dT = time-oldTime;
+			gl.clear(gl.COLOR_BUFFER_BIT+gl.DEPTH_BUFFER_BIT);
+			frame++;
+			
+			if(frame % 20 == 0) ++max;
+			
+			var k = 6*dT; if (k>1) k=1;
+			realA = realA*(1-k)+k*viewA;
+			realB = realB*(1-k)+k*viewB;
+			realD = realD*(1-k)+k*viewD;
+			lookAt([realD*cos(realA)*cos(realB),realD*sin(realA)*cos(realB),realD*sin(realB)],[0,0,3],[0,0,1]);
+			
+			//lookAt([14, -19, 7], [0, 0, 3], [0, 0, 1]);
+			//lookAt([-11, -15, 22], [0, 0, 1.21], [0, 0, 1]);
+			//lookAt([-11, 15, 22], [0, 0, 1.21], [0, 0, 1]);
+			//lookAt([-11, 15, 14], [0, 0, 1.21], [0, 0, 1]);
+			//lookAt([11, -15, -3], [0, 0, 1.21], [0, 0, 1]);
+			//lookAt([3, -8, 8], [2, 1, 0], [0, 0, 1]);
+			//lookAt([0, -8, 1], [0, 0, 1], [0, 0, 1]);
+			//lookAt([-2, -1.8 - 0.001*frame, 1], [2, -1.8 - 0.001*frame, 1], [0, 0, 1]);
+			///lookAt([-4, -1.8, 3 - 0.001*frame], [2, -1.8, 3 - 0.001*frame], [0, 0, 1]);
+			///lookAt([0, -5, 6.5 + 10], [0, 0, 5], [0, 0, 1]);
+			//lookAt([-3, -7, 2], [-2, 1, 0], [0, 0, 1]);
+			///lookAt([-5, -0.5, 4.5], [-2, -0.5, 4.5], [0, 0, 1]);
+			///lookAt([-5, -0.5, 4.5 + 0.003*frame], [-2, -0.5, 4.5], [0, 0, 1]);
+			//lookAt([9, 2, 2], [0, 2, 2], [0, 0, 1]);
+			//lookAt([20*cos(time/3),20*sin(time/3),25+5*sin(time/2)],[0,0,0],[0,0,1]);
+			
+			//for(var i = 0; i < legoParts.length; ++i)
+			//for(var i = 0; i < 30; ++i)
+			for(var i = 0; i < Math.min(max, legoParts.length); ++i)
+			{
+				//if(i == 4 || i == 11 || i == 12 || i == 13 || i == 14) legoParts[i].draw();
+				//if(i == 6) continue;
+				//if(i == 5) continue;
+				//if(i == 43) legoParts[i].draw();
+				legoParts[i].draw();
+			}
+			
+			requestAnimationFrame(drawFrame);
+		}
+		
+		var drag = false;
+		
+		// при натискане на бутон
+		function mouseDown(event)
+		{
+			gl.canvas.style.cursor = 'move';
+			startX = getX(event);
+			startY = getY(event);
+			drag = true;
+		}
+		
+		// при пускане на бутон (все едно кой)
+		function mouseUp(event)
+		{
+			gl.canvas.style.cursor = 'default';
+			drag = false;
+		}
+		
+		// при движение на мишката
+		function mouseMove(event)
+		{
+			// игнорираме движение, ако не влачим
+			if (!drag) return;
+
+			var dX = startX-getX(event);
+			var dY = startY-getY(event);
+			
+			if (event.buttons==1)
+			{
+				// ляв бутон - въртене с ограничение
+				viewA += dX/100;
+				viewB += dY/100;
+				if (viewB>1.57) viewB=1.57;
+				if (viewB<0) viewB=0;
+			}
+			
+			startX = getX(event);
+			startY = getY(event);
+		}
+	</script>	
+</head>
+
+<body onload="start()">
+	<h2>Легото</h2>
+
+	<noscript>
+		Искаме JavaScript, но няма!
+	</noscript>
+	
+	<canvas id="picasso" style="border: solid;">
+		Искаме canvas, но няма!
+	</canvas>
+</body>
